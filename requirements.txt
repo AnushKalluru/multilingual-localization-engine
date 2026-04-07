@@ -1,0 +1,25 @@
+# Backend dependencies
+# Install with: pip install -r requirements.txt
+
+# Core ML
+torch>=2.0.0
+transformers>=4.39.0
+
+# Translation
+langdetect>=1.0.9
+sentencepiece>=0.1.99        # required by NLLB tokenizer
+sacremoses>=0.0.53           # required by NLLB tokenizer
+
+# STT — Whisper
+openai-whisper>=20231117
+soundfile>=0.12.1
+numpy>=1.24.0
+
+# TTS — SpeechT5 (English) + MMS-TTS (multilingual)
+datasets>=2.18.0             # for speaker embeddings (SpeechT5)
+
+# Optional — resampling for non-16kHz audio inputs
+librosa>=0.10.0
+
+# Optional — live audio playback
+sounddevice>=0.4.6
