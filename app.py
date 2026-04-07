@@ -2,7 +2,7 @@
 app.py
 ------
 Flask API backend for the Multilingual Localization Engine.
-Handles Text, Audio, and PDF inputs to generate translated text and audio.
+Handles Text, Audio, and PDF inputs -> NLLB Translation -> Gemini Refinement -> TTS.
 """
 
 import os
@@ -12,30 +12,35 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
-# Import local ML modules
+# Import local ML and LLM modules
+from translation import translate_text, detect_language, LANG_MAP
+from STT import speech_to_text
+from TTS import text_to_speech
+from refinement import refine_translation
+
 app = Flask(__name__)
 CORS(app)
 
-# Directories for temporary files
 UPLOAD_DIR = "api_uploads"
 OUTPUT_DIR = "api_outputs"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ==========================================
-# MAIN PROCESSING ROUTE
-# ==========================================
+# Helper map for Gemini to know the full language name
+LANGUAGE_NAMES = {
+    "en": "English",
+    "hi": "Hindi",
+    "te": "Telugu",
+    "ta": "Tamil",
+    "kn": "Kannada"
+}
+
 @app.route('/api/process', methods=['POST'])
 def process_input():
-    """
-    Accepts: target_language (required)
-             text (optional string)
-             file (optional PDF or Audio file)
-    Returns: JSON with original text, translated text, and an audio download URL.
-    """
     target_lang = request.form.get('target_language')
     text_input = request.form.get('text')
     uploaded_file = request.files.get('file')
+    domain = request.form.get('domain', 'General Conversation') # Default domain
 
     if not target_lang or target_lang not in LANG_MAP:
         return jsonify({"error": f"Valid 'target_language' required. Options: {list(LANG_MAP.keys())}"}), 400
@@ -46,13 +51,12 @@ def process_input():
     source_text = ""
 
     try:
-        # 1. HANDLE INPUT EXTRACTION
+        # 1. EXTRACT TEXT
         if uploaded_file:
             filename = secure_filename(uploaded_file.filename)
             filepath = os.path.join(UPLOAD_DIR, filename)
             uploaded_file.save(filepath)
 
-            # Route A: PDF File
             if filename.lower().endswith('.pdf'):
                 with open(filepath, 'rb') as pdf_file:
                     reader = PyPDF2.PdfReader(pdf_file)
@@ -60,39 +64,46 @@ def process_input():
                         extracted = page.extract_text()
                         if extracted:
                             source_text += extracted + "\n"
-            
-            # Route B: Audio File (Speech-to-Text)
-            else:
+            else: # Audio file
                 stt_result = speech_to_text(filepath)
                 source_text = stt_result.get('text', '')
 
-            # Cleanup upload
             if os.path.exists(filepath):
                 os.remove(filepath)
 
-        # Route C: Direct Text
         elif text_input:
             source_text = text_input.strip()
 
         if not source_text.strip():
             return jsonify({"error": "No recognizable text found in the input."}), 400
 
-        # 2. HANDLE TRANSLATION
+        # 2. LOCAL ML TRANSLATION (The Draft)
         src_lang = detect_language(source_text)
-        translated_text = translate_text(source_text, tgt_lang_code=target_lang, src_lang_code=src_lang)
+        draft_translation = translate_text(source_text, tgt_lang_code=target_lang, src_lang_code=src_lang)
 
-        # 3. HANDLE TEXT-TO-SPEECH
+        # 3. LLM REFINEMENT (The Polish)
+        target_lang_name = LANGUAGE_NAMES.get(target_lang, "English")
+        refined_translation = refine_translation(
+            original_text=source_text.strip(),
+            draft_translation=draft_translation,
+            target_language=target_lang_name,
+            domain=domain
+        )
+
+        # 4. TEXT-TO-SPEECH (Using the Refined Text)
         audio_filename = f"output_{uuid.uuid4().hex[:8]}.wav"
         audio_filepath = os.path.join(OUTPUT_DIR, audio_filename)
         
-        text_to_speech(text=translated_text, lang_code=target_lang, output_path=audio_filepath, play_audio=False)
+        text_to_speech(text=refined_translation, lang_code=target_lang, output_path=audio_filepath, play_audio=False)
 
-        # 4. RETURN RESPONSE
+        # 5. RETURN COMBINED RESPONSE
         return jsonify({
             "source_language": src_lang,
             "target_language": target_lang,
+            "domain_used": domain,
             "original_text": source_text.strip(),
-            "translated_text": translated_text,
+            "draft_translation": draft_translation,   # Sending this back so you can compare!
+            "refined_translation": refined_translation, # The final LLM output
             "audio_url": f"http://127.0.0.1:5000/api/audio/{audio_filename}"
         }), 200
 
@@ -100,15 +111,10 @@ def process_input():
         return jsonify({"error": str(e)}), 500
 
 
-# ==========================================
-# AUDIO FILE SERVING ROUTE
-# ==========================================
 @app.route('/api/audio/<filename>', methods=['GET'])
 def get_audio(filename):
-    """Serves the generated .wav files to the frontend."""
     return send_from_directory(OUTPUT_DIR, filename, mimetype="audio/wav")
 
-
 if __name__ == '__main__':
-    print("🚀 Starting API Engine...")
+    print("🚀 Starting Multilingual Localization Engine...")
     app.run(host='0.0.0.0', port=5000, debug=True)
