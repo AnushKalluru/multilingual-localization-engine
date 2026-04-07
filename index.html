@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multilingual Engine Tester</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+
+        .container {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        textarea,
+        select,
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #3498db;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+
+        .results {
+            margin-top: 30px;
+            display: none;
+            padding-top: 20px;
+            border-top: 2px solid #eee;
+        }
+
+        .result-box {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+            margin-bottom: 15px;
+            white-space: pre-wrap;
+        }
+
+        .draft-box {
+            border-left: 4px solid #f39c12;
+            background: #fffdf7;
+        }
+
+        .audio-player {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .error {
+            color: #e74c3c;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 15px;
+        }
+
+        .badge {
+            background: #2c3e50;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Multilingual Localization Engine</h1>
+
+    <div class="container">
+        <form id="engineForm">
+            <div class="form-group">
+                <label for="textInput">1. Enter Text (Optional if uploading file):</label>
+                <textarea id="textInput" rows="4" placeholder="Type text to translate here..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="fileInput">2. OR Upload File (PDF or Audio):</label>
+                <input type="file" id="fileInput" accept=".pdf, .wav, .mp3, .m4a">
+            </div>
+
+            <div class="form-group">
+                <label for="domainSelect">3. Select Context / Domain:</label>
+                <select id="domainSelect" required>
+                    <option value="General Conversation">General Conversation</option>
+                    <option value="Medical and Healthcare">Medical & Healthcare</option>
+                    <option value="Software Engineering">Software Engineering</option>
+                    <option value="Legal and Contracts">Legal & Contracts</option>
+                    <option value="Finance and Banking">Finance & Banking</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="targetLanguage">4. Select Target Language:</label>
+                <select id="targetLanguage" required>
+                    <option value="hi">Hindi (hi)</option>
+                    <option value="te">Telugu (te)</option>
+                    <option value="ta">Tamil (ta)</option>
+                    <option value="kn">Kannada (kn)</option>
+                    <option value="en">English (en)</option>
+                </select>
+            </div>
+
+            <button type="submit" id="submitBtn">Process Pipeline</button>
+        </form>
+
+        <div id="errorMsg" class="error"></div>
+
+        <div id="resultsSection" class="results">
+            <h3>Results: <span class="badge" id="resDomain"></span></h3>
+
+            <label>Original Extracted Text:</label>
+            <div id="resOriginal" class="result-box"></div>
+
+            <label>Draft Translation (Local NLLB Model):</label>
+            <div id="resDraft" class="result-box draft-box"></div>
+
+            <label>Final Refined Translation (Gemini LLM):</label>
+            <div id="resRefined" class="result-box"></div>
+
+            <label>Generated Speech (from Refined Text):</label>
+            <audio id="audioPlayer" class="audio-player" controls></audio>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('engineForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const submitBtn = document.getElementById('submitBtn');
+            const errorMsg = document.getElementById('errorMsg');
+            const resultsSection = document.getElementById('resultsSection');
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Processing Machine Learning Pipeline...";
+            errorMsg.textContent = "";
+            resultsSection.style.display = "none";
+
+            const formData = new FormData();
+            formData.append('target_language', document.getElementById('targetLanguage').value);
+            formData.append('domain', document.getElementById('domainSelect').value);
+
+            const textValue = document.getElementById('textInput').value;
+            if (textValue) formData.append('text', textValue);
+
+            const fileInput = document.getElementById('fileInput');
+            if (fileInput.files.length > 0) formData.append('file', fileInput.files[0]);
+
+            try {
+                const response = await fetch('http://127.0.0.1:5000/api/process', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) throw new Error(data.error || 'Something went wrong processing the request.');
+
+                document.getElementById('resDomain').textContent = data.domain_used;
+                document.getElementById('resOriginal').textContent = data.original_text;
+                document.getElementById('resDraft').textContent = data.draft_translation;
+                document.getElementById('resRefined').textContent = data.refined_translation;
+
+                const audioPlayer = document.getElementById('audioPlayer');
+                audioPlayer.src = data.audio_url;
+
+                resultsSection.style.display = "block";
+
+            } catch (error) {
+                errorMsg.textContent = "Error: " + error.message;
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Process Pipeline";
+            }
+        });
+    </script>
+</body>
+
+</html>
